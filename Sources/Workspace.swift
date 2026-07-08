@@ -6973,8 +6973,8 @@ final class Workspace: Identifiable, ObservableObject {
             return rescued
         }
         return [
-            sourcePanelId.flatMap { panelDirectories[$0] },
             inheritedWorkingDirectoryForTerminalStartup(sourcePanelId: sourcePanelId, inheritedWorkingDirectory: inheritedWorkingDirectory),
+            sourcePanelId.flatMap { panelDirectories[$0] },
             sourcePanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
             currentDirectory,
         ].lazy.compactMap(Self.normalizedTerminalWorkingDirectory).first
@@ -6986,7 +6986,8 @@ final class Workspace: Identifiable, ObservableObject {
               restoredGuardedWorkingDirectoriesByPanelId[sourcePanelId] == nil,
               restoredAgentResumeStatesByPanelId[sourcePanelId] != .autoResumeCommandRunning,
               !isRemoteTerminalSurface(sourcePanelId),
-              terminalPanel(for: sourcePanelId)?.surface.surface != nil else { return nil }
+              let terminalPanel = terminalPanel(for: sourcePanelId),
+              terminalPanel.surface.surface != nil else { return nil }
         return inherited
     }
 
