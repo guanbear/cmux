@@ -7173,7 +7173,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func inheritedTerminalConfig(
         preferredPanelId: UUID? = nil,
-        inPane preferredPaneId: PaneID? = nil
+        inPane preferredPaneId: PaneID? = nil,
+        sourcePanelId: ((UUID) -> Void)? = nil
     ) -> CmuxSurfaceConfigTemplate? {
         // Walk candidates in priority order and use the first panel that still exposes
         // a runtime surface pointer.
@@ -7206,6 +7207,7 @@ final class Workspace: Identifiable, ObservableObject {
             if config.fontSize > 0 {
                 lastTerminalConfigInheritanceFontPoints = config.fontSize
             }
+            sourcePanelId?(terminalPanel.id)
             return config
         }
 
@@ -7220,17 +7222,6 @@ final class Workspace: Identifiable, ObservableObject {
             return config
         }
 
-        return nil
-    }
-
-    private func inheritedTerminalWorkingDirectory(preferredPanelId: UUID?, inPane preferredPaneId: PaneID?) -> String? {
-        for terminalPanel in terminalPanelConfigInheritanceCandidates(preferredPanelId: preferredPanelId, inPane: preferredPaneId) {
-            let surface = terminalPanel.surface
-            guard let sourceSurface = surface.surface else { continue }
-            let inherited = ghostty_surface_inherited_config(sourceSurface, GHOSTTY_SURFACE_CONTEXT_SPLIT)
-            withExtendedLifetime((terminalPanel, surface)) {}
-            if let workingDirectory = inherited.working_directory.flatMap({ String(cString: $0, encoding: .utf8) }) { return workingDirectory }
-        }
         return nil
     }
 
@@ -7353,7 +7344,12 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         guard let paneId = sourcePaneId else { return nil }
-        var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
+        var inheritedConfigSourcePanelId: UUID?
+        var inheritedConfig = inheritedTerminalConfig(
+            preferredPanelId: panelId,
+            inPane: paneId,
+            sourcePanelId: { inheritedConfigSourcePanelId = $0 }
+        )
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
@@ -7390,7 +7386,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         let splitWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
             requestedWorkingDirectory: workingDirectory, sourcePanelId: panelId,
-            inheritedWorkingDirectory: inheritedConfig?.workingDirectory
+            inheritedWorkingDirectory: inheritedConfigSourcePanelId == panelId ? inheritedConfig?.workingDirectory : nil
         )
 
         // Create the new terminal panel.
@@ -7662,10 +7658,11 @@ final class Workspace: Identifiable, ObservableObject {
         let fallbackSourcePanelId = workingDirectoryFallbackSourcePanelId
             ?? bonsplitController.selectedTab(inPane: paneId).map(\.id).flatMap(panelIdFromSurfaceId)
         let shouldInheritWorkingDirectoryFallback = inheritWorkingDirectoryFallback && startupCommand == nil
-        let inheritedWorkingDirectory = shouldInheritWorkingDirectoryFallback
-            ? inheritedTerminalWorkingDirectory(preferredPanelId: fallbackSourcePanelId, inPane: paneId)
+        var inheritedConfigSourcePanelId: UUID?
+        var inheritedConfig = inheritedTerminalConfig(inPane: paneId, sourcePanelId: { inheritedConfigSourcePanelId = $0 })
+        let inheritedWorkingDirectory = shouldInheritWorkingDirectoryFallback && inheritedConfigSourcePanelId == fallbackSourcePanelId
+            ? inheritedConfig?.workingDirectory
             : nil
-        var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         if startupCommand != nil {
             var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
             template.waitAfterCommand = true
