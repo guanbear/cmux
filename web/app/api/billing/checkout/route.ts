@@ -6,9 +6,6 @@ import { validatedNativeCallbackScheme } from "../../../lib/native-callback";
 import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
 import {
-  PRO_PRODUCT_ID,
-  TEAM_PRODUCT_ID,
-  hasActiveProSubscription,
   resolveProPlanStatus,
   syncProPlanMetadata,
 } from "../../../../services/billing/pro";
@@ -24,9 +21,7 @@ import {
 export const dynamic = "force-dynamic";
 
 // One-click upgrade entrypoint. Signed-out visitors become anonymous Stack
-// users first, then go straight to the hosted purchase page. Stack keeps the
-// product grant attached to that anonymous user until the buyer completes
-// account setup with an email.
+// users first, then go straight to Stripe Checkout.
 export async function GET(request: NextRequest) {
   if (!stackServerApp) {
     return NextResponse.redirect(new URL("/pricing?billing=unavailable", request.url));
@@ -37,14 +32,19 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", request.url));
   }
 
-  if (plan === "pro" && isStripeBillingConfigured()) {
-    return stripeProCheckout(request);
-  }
-  if (plan === "team" && isStripeBillingConfigured()) {
-    return stripeTeamCheckout(request);
+  if (!isStripeBillingConfigured()) {
+    return NextResponse.redirect(new URL("/pricing?billing=unavailable", request.url));
   }
 
-  return legacyStackCheckout(request, plan);
+  if (plan === "pro") {
+    return stripeProCheckout(request);
+  }
+  if (plan === "team") {
+    return stripeTeamCheckout(request);
+  }
+  // checkoutPlan only yields "pro" | "team" | null (null handled above); this is
+  // unreachable but keeps GET returning a NextResponse instead of possibly-undefined.
+  return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", request.url));
 }
 
 async function stripeProCheckout(request: NextRequest) {
@@ -160,67 +160,10 @@ async function stripeTeamCheckout(request: NextRequest) {
   }
 }
 
-async function legacyStackCheckout(
-  request: NextRequest,
-  plan: "pro" | "team",
-) {
-  const user =
-    (await stackServerApp!.getUser({ or: "return-null" })) ??
-    (await stackServerApp!.getUser({ or: "anonymous" }));
-
-  if (plan === "pro" && (await hasActiveProSubscription(user))) {
-    await syncProPlanMetadata(user, true);
-    return NextResponse.redirect(new URL("/pricing?welcome=active", request.url));
-  }
-
-  const returnUrl = new URL(
-    plan === "pro" ? "/api/billing/confirm" : "/pricing?welcome=team",
-    request.url,
-  ).toString();
-  let checkoutUrl: string;
-  const productId = plan === "pro" ? PRO_PRODUCT_ID : TEAM_PRODUCT_ID;
-  const customer = plan === "pro" ? user : await checkoutTeamCustomer(user);
-  try {
-    checkoutUrl = await customer.createCheckoutUrl({
-      productId,
-      returnUrl,
-    });
-  } catch (error) {
-    // "Already granted" error text is only a hint — re-read the authoritative
-    // subscription state before treating the buyer as Pro, so a lookalike
-    // error message can never mint an entitlement.
-    if (plan === "pro" && isAlreadyGrantedError(error)) {
-      if (await hasActiveProSubscription(user)) {
-        await syncProPlanMetadata(user, true);
-        return NextResponse.redirect(new URL("/pricing?welcome=active", request.url));
-      }
-      // Stack refused the checkout as already-granted but the products read
-      // does not show Pro yet (replication lag). The confirm route's bounded
-      // poll settles it and syncs metadata from the verified state.
-      return NextResponse.redirect(new URL("/api/billing/confirm", request.url));
-    }
-    // return_url must be on a domain the Stack project trusts; previews and
-    // local dev ports may not be. The purchase still works without it — the
-    // buyer stays on the hosted receipt, and Pro state is picked up by the
-    // read-time reconcile on VM create or the next visit to this route.
-    try {
-      checkoutUrl = await customer.createCheckoutUrl({ productId });
-    } catch (retryError) {
-      console.error("[Billing] createCheckoutUrl failed", error, retryError);
-      return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
-    }
-  }
-  return NextResponse.redirect(checkoutUrl);
-}
-
 type CheckoutTeamCustomer = {
   readonly id?: string;
   readonly displayName?: string | null;
   listUsers?(): Promise<readonly unknown[]>;
-  createCheckoutUrl(options: {
-    productId: string;
-    returnUrl?: string;
-  }): Promise<string>;
 };
 
 type CheckoutTeamUser = {
@@ -302,12 +245,6 @@ function checkoutPlan(raw: string | null): "pro" | "team" | null {
 
 function checkoutInterval(raw: string | null): ProBillingInterval {
   return raw === "year" ? "year" : "month";
-}
-
-function isAlreadyGrantedError(error: unknown): boolean {
-  const text =
-    error instanceof Error ? `${error.name} ${error.message}` : String(error);
-  return /already.{0,20}granted/i.test(text);
 }
 
 function isStackTeamUniqueConflict(error: unknown): boolean {

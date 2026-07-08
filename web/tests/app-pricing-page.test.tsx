@@ -43,21 +43,6 @@ const proUser = {
   isAnonymous: false,
   primaryEmail: "pro@example.com",
   clientReadOnlyMetadata: { cmuxPlan: "pro" },
-  listProducts: mock(async () =>
-    Object.assign(
-      [
-        {
-          id: "pro",
-          quantity: 1,
-          subscription: {
-            cancelAtPeriodEnd: false,
-            currentPeriodEnd: null,
-          },
-        },
-      ],
-      { nextCursor: null },
-    ),
-  ),
   update: mock(async () => undefined),
 };
 
@@ -90,7 +75,6 @@ describe("app pricing page", () => {
     stackConfigured = false;
     currentUser = null;
     stripeSubscriptionRows = [];
-    proUser.listProducts.mockClear();
     proUser.update.mockClear();
   });
 
@@ -118,7 +102,7 @@ describe("app pricing page", () => {
     expect(html).not.toContain("/api/billing/portal");
   });
 
-  test("renders the external billing note without a portal link for Stack Pro users", async () => {
+  test("renders Stack metadata-only Pro users as Free", async () => {
     stackConfigured = true;
     currentUser = proUser;
 
@@ -132,9 +116,8 @@ describe("app pricing page", () => {
 
     expect(html).not.toContain('href="/api/billing/portal"');
     expect(html).toContain(
-      "Your subscription is managed by our previous billing system. Contact support to make changes.",
+      "http://localhost:9210/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test",
     );
-    expect(html).toContain("Current plan");
   });
 
   test("renders Manage billing for Stripe-managed Pro users", async () => {
