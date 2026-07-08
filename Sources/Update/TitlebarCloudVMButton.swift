@@ -28,9 +28,7 @@ enum TitlebarNewWorkspaceCloudSplitButtonForcedHoverSegment: String, CaseIterabl
 
     var id: String { rawValue }
 
-    static func stored(rawValue: String) -> Self {
-        Self(rawValue: rawValue) ?? .newTab
-    }
+    static func stored(rawValue: String) -> Self { Self(rawValue: rawValue) ?? .newTab }
 
     fileprivate func includes(_ segment: TitlebarNewWorkspaceCloudSplitButtonSegment) -> Bool {
         switch (self, segment) {
@@ -121,11 +119,10 @@ struct TitlebarNewWorkspaceCloudSplitButton: View {
 
     private var isHovering: Bool {
 #if DEBUG
-        if debugAlwaysHover {
-            return true
-        }
-#endif
+        return debugAlwaysHover || hoveredSegment != nil
+#else
         return hoveredSegment != nil
+#endif
     }
 
     private var foregroundOpacity: Double {
@@ -557,13 +554,9 @@ private final class CloudVMMouseDownMenuItemView: NSView {
         addTrackingArea(area)
     }
 
-    override func mouseEntered(with event: NSEvent) {
-        isHighlighted = true
-    }
+    override func mouseEntered(with event: NSEvent) { isHighlighted = true }
 
-    override func mouseExited(with event: NSEvent) {
-        isHighlighted = false
-    }
+    override func mouseExited(with event: NSEvent) { isHighlighted = false }
 
     override func mouseDown(with event: NSEvent) {
         isHighlighted = true
