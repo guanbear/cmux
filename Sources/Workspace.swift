@@ -6987,7 +6987,10 @@ final class Workspace: Identifiable, ObservableObject {
               restoredAgentResumeStatesByPanelId[sourcePanelId] != .autoResumeCommandRunning,
               !isRemoteTerminalSurface(sourcePanelId),
               let terminalPanel = terminalPanel(for: sourcePanelId),
-              terminalPanel.surface.surface != nil else { return nil }
+              terminalPanel.surface.surface != nil,
+              !(terminalPanel.surface.initialCommand != nil &&
+                  Self.normalizedTerminalWorkingDirectory(terminalPanel.requestedWorkingDirectory) == nil &&
+                  panelShellActivityStates[sourcePanelId] != .promptIdle) else { return nil }
         return inherited
     }
 
